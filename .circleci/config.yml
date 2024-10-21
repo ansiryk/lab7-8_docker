@@ -1,38 +1,45 @@
-# This config was automatically generated from your source code
-# Stacks detected: deps:node:.,test:jest:
 version: 2.1
 orbs:
-  node: circleci/node@5
+  docker: circleci/docker@2.2.0
 jobs:
-  test-node:
-    # Install node dependencies and run tests
-    executor: node/default
-    environment:
-      JEST_JUNIT_OUTPUT_DIR: ./test-results/
+  build:
+    working_directory: ~/repo
+    docker:
+      - image: cimg/node:18.0.0
     steps:
       - checkout
-      - node/install-packages:
-          pkg-manager: npm
+      - restore_cache:
+          key: dependency-cache-{{ checksum "package-lock.json" }}
       - run:
-          command: npm install jest-junit
+          name: install-packages
+          command: npm install
+      - save_cache:
+          key: dependency-cache-{{ checksum "package-lock.json" }}
+          paths:
+            - ./node_modules
       - run:
           name: Run tests
-          command: npm run test --ci --runInBand --reporters=default --reporters=jest-junit
-      - store_test_results:
-          path: ./test-results/
-  deploy:
-    # This is an example deploy job, not actually used by the workflow
-    docker:
-      - image: cimg/base:stable
+          command: npm run test
+  build-and-deploy-docker-image:
+    executor:
+      name: docker/docker
+      tag: "3.6"
     steps:
-      # Replace this with steps to deploy to users
+      - checkout
+      - docker/install-docker-tools
+      - setup_remote_docker:
+          docker_layer_caching: true
       - run:
-          name: deploy
-          command: '#e.g. ./deploy.sh'
+          name: Build and push Docker image
+          command: |
+            docker build -t sirykregistry.azurecr.io/mynodeimage:latest .
+            echo $DOCKER_PASS | docker login sirykregistry.azurecr.io -u $DOCKER_USER --password-stdin
+            docker push sirykregistry.azurecr.io/mynodeimage:latest
 workflows:
-  build-and-test:
+  version: 2.1
+  build:
     jobs:
-      - test-node
-    # - deploy:
-    #     requires:
-    #       - test-node
+      - build
+      - build-and-deploy-docker-image:
+          requires:
+            - build # only deploy once build job has completed
